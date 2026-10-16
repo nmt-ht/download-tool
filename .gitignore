@@ -1,0 +1,14 @@
+# KHOÁ BÍ MẬT tạo mã kích hoạt — tuyệt đối không đưa lên GitHub
+*.pem
+license_private_key*
+
+# Môi trường Python, file tạm
+.venv/
+__pycache__/
+*.pyc
+
+# Trạng thái cục bộ của chương trình
+update_state.json
+
+# File cài đặt đã đóng gói (tạo lại bằng build_installer.ps1)
+dist/
