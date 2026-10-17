@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
 $AppName = 'Download Tool'
-$AppVersion = '1.6.0'
+$AppVersion = '1.7.0'
 $RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DownloadTool'
 $Src = Join-Path $PSScriptRoot 'app'
 $RuntimeDir = Join-Path $InstallDir 'runtime'       # Python / Node.js riêng của chương trình

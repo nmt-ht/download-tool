@@ -4,9 +4,9 @@ Dán link kênh, playlist hoặc 1 video (YouTube, Bilibili, Dailymotion, TikTok
 
 ## Cách chạy
 
-Yêu cầu: Windows + Python 3.10 trở lên. Nên có thêm Node.js hoặc Deno (yt-dlp cần để giải mã link video YouTube).
+Yêu cầu: Windows 10/11 và kết nối Internet. File cài đặt tự cài mọi thành phần cần thiết, bạn không phải cài thêm gì.
 
-**Giao diện:** bấm đúp `run.bat`. Lần đầu chạy sẽ tự cài thư viện (yt-dlp, ffmpeg).
+**Giao diện:** mở shortcut **Download Tool**, hoặc bấm đúp `run.bat`.
 
 Lần đầu mở, phần mềm hiện **Điều khoản sử dụng** ([EULA.md](EULA.md)). Phải bấm **Tôi đồng ý** mới dùng được; bấm **Thoát** thì chương trình đóng lại. Khi Điều khoản có phiên bản mới, phần mềm hỏi lại một lần.
 
@@ -18,7 +18,7 @@ Lần đầu mở, phần mềm hiện **Điều khoản sử dụng** ([EULA.md
 
 ## Các trang được hỗ trợ
 
-Phần mềm dùng thư viện yt-dlp nên đọc được hơn 1.700 trang. Các trang thường dùng (đã thử thực tế):
+Phần mềm đọc được hơn 1.700 trang video. Các trang thường dùng (đã thử thực tế):
 
 | Trang | Video lẻ | Cả kênh / playlist | Ghi chú |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Phần mềm dùng thư viện yt-dlp nên đọc được hơn 1.700 trang. Cá
 | TikTok | ✅ | ⚠️ qua link 1 video | Trang tài khoản thường không đọc được. Dán link **1 video** của tài khoản và tick ô **TikTok: tải cả kênh**. Cách này chạy được với nhiều tài khoản (đã thử: 76 video), nhưng không phải tất cả |
 | Douyin | ✅ cần cookies | ❌ | Dán link từng video `douyin.com/video/…` |
 | Ixigua | ✅ cần cookies | ❌ | |
-| Kuaishou | ❌ | ❌ | yt-dlp không hỗ trợ trang này |
+| Kuaishou | ❌ | ❌ | Chưa hỗ trợ |
 
 Các trang khác (Vimeo, Facebook, Weibo, Youku, iQiyi, AcFun…) cứ dán link vào thử. Nếu trang không hỗ trợ, phần mềm sẽ báo lỗi kèm lý do.
 
@@ -132,12 +132,12 @@ Khi bật chế độ này, phần mềm đọc giấy phép của từng video 
 
 ## Tự động cập nhật
 
-YouTube thay đổi thường xuyên, và yt-dlp (thư viện dùng để tải) thường sửa theo trong vài ngày.
+Các trang video thay đổi thường xuyên, nên phần mềm luôn tự cập nhật để tải được.
 
-- **Mỗi lần mở**, chương trình tự cập nhật yt-dlp lên bản mới nhất trước khi cho tải. Thường mất vài giây. Dòng cuối cửa sổ hiện phiên bản đang dùng. Có thể bấm **⟳ Kiểm tra cập nhật** bất cứ lúc nào.
-- **Khi YouTube vừa thay đổi:** nếu 3 video liên tiếp lỗi kiểu "không trích xuất được", chương trình dừng lại và hỏi có muốn chuyển sang **bản thử nghiệm (nightly)** của yt-dlp không. Bản sửa thường có ở đó trước, vài ngày đến vài tuần sau mới vào bản ổn định. Đồng ý thì chương trình tự cập nhật rồi mở lại. Muốn quay về bản ổn định thì bỏ tick ô **Dùng bản thử nghiệm (nightly)**.
-- **Cảnh báo:** chương trình báo (chữ đỏ ở dòng cuối và trong log) khi không cập nhật được do mất mạng, hoặc khi **Python trên máy quá cũ** so với yêu cầu của yt-dlp mới. Trường hợp Python cũ, chương trình sẽ kẹt ở bản cũ và dần không tải được nữa. Cách xử lý: cài Python mới rồi chạy lại file cài đặt.
-- **Dòng lệnh:** tự cập nhật trước khi tải. `--no-update` để bỏ qua, `--channel nightly` hoặc `--channel stable` để chọn bản (lựa chọn được ghi nhớ). Nếu dừng vì yt-dlp lỗi, chương trình thoát với mã `4`.
+- **Mỗi lần mở**, phần mềm tự kiểm tra và cập nhật trước khi cho tải, thường mất vài giây. Dòng cuối cửa sổ hiện **"Tất cả thư viện đã là bản mới nhất — sẵn sàng sử dụng"**. Có thể bấm **⟳ Kiểm tra cập nhật** bất cứ lúc nào.
+- **Khi trang web vừa thay đổi:** nếu 3 video liên tiếp lỗi cùng một kiểu, phần mềm dừng lại và hỏi có muốn chuyển sang **bản cập nhật thử nghiệm** không. Bản sửa lỗi thường có ở đó trước, vài ngày đến vài tuần sau mới có trong bản chính thức. Đồng ý thì phần mềm tự cập nhật rồi mở lại. Muốn quay về bản chính thức thì bỏ tick ô **Dùng bản cập nhật thử nghiệm**.
+- **Cảnh báo:** phần mềm báo (chữ đỏ ở dòng cuối) khi không kiểm tra được cập nhật vì mất mạng, hoặc khi **cần cài lại phần mềm** mới nhận được bản cập nhật. Trường hợp sau thì hãy liên hệ người bán để nhận file cài đặt mới nhất.
+- **Dòng lệnh:** tự cập nhật trước khi tải. `--no-update` để bỏ qua, `--channel nightly` hoặc `--channel stable` để chọn bản thử nghiệm hoặc chính thức (lựa chọn được ghi nhớ). Nếu dừng vì trang web vừa thay đổi, chương trình thoát với mã `4`.
 
 Lưu ý: tự động cập nhật chỉ xử lý các **thay đổi kỹ thuật** của YouTube. Thay đổi về **chính sách, điều khoản** là chuyện pháp lý, bạn cần tự theo dõi.
 

@@ -296,7 +296,7 @@ def resolve_target(url: str) -> Target:
                          "https://www.youtube.com/@tenkenh")
     for domain, name in UNSUPPORTED_SITES.items():
         if host == domain or host.endswith("." + domain):
-            raise ValueError(f"{name} hiện chưa được hỗ trợ: thư viện tải video (yt-dlp) không đọc được trang này.")
+            raise ValueError(f"{name} hiện chưa được hỗ trợ.")
     return Target("other", url, site_name(url))
 
 
@@ -315,8 +315,8 @@ def explain_error(message: str, site: str) -> str:
     if "netscape format" in m or "cookies file" in m:
         return COOKIE_FORMAT_MESSAGE
     if "impersonat" in m:
-        return ("Trang này cần thư viện curl_cffi. Hãy bấm “⟳ Kiểm tra cập nhật” rồi mở lại chương trình "
-                "(hoặc chạy lại file cài đặt).")
+        return ("Phần mềm thiếu thành phần cần cho trang này. Hãy bấm “⟳ Kiểm tra cập nhật” rồi mở lại "
+                "chương trình (hoặc chạy lại file cài đặt).")
     if "unsupported url" in m:
         return f"Link này không được hỗ trợ ({site}). Hãy thử link của từng video."
     if "secondary user id" in m:
@@ -324,7 +324,27 @@ def explain_error(message: str, site: str) -> str:
                 "Thử cách khác: dán link 1 video bất kỳ của tài khoản này và tick ô "
                 "“TikTok: tải cả kênh từ link 1 video”.")
     first = message.strip().splitlines()[0] if message.strip() else message
-    return re.sub(r"^ERROR:\s*", "", first)
+    return clean_library_message(first)
+
+
+# Phần đuôi kỹ thuật trong thông báo gốc của thư viện tải video (link báo lỗi, lệnh cập nhật, tên thư viện…)
+_LIBRARY_NOISE = [
+    re.compile(r"\s*Also see\b.*", re.IGNORECASE | re.DOTALL),
+    re.compile(r";?\s*please report this issue.*", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\s*Confirm you are on the latest version.*", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\s*Use --cookies-from-browser or --cookies[^.]*\.?", re.IGNORECASE),
+    re.compile(r"\s*See\s+https?://\S+\s+for\b[^.]*\.?", re.IGNORECASE),
+    re.compile(r"\s*https?://(?:github\.com|pypi\.org)/\S*yt-dlp\S*", re.IGNORECASE),
+]
+
+
+def clean_library_message(message: str) -> str:
+    """Bỏ tên thư viện và hướng dẫn dành cho lập trình viên khỏi thông báo trước khi hiện cho khách."""
+    for pattern in _LIBRARY_NOISE:
+        message = pattern.sub("", message)
+    message = re.sub(r"\byt[-_]dlp\b", "trình tải", message, flags=re.IGNORECASE)
+    message = re.sub(r"^\s*(ERROR|WARNING):\s*", "", message.strip())
+    return message.strip() or "Lỗi không xác định."
 
 
 def default_output_dir() -> Path:
@@ -482,14 +502,14 @@ class UpdateResult:
         return bool(self.before and self.after and self.before != self.after)
 
     def summary(self) -> str:
-        channel = CHANNELS[self.channel]
+        """Câu hiển thị cho khách: không nêu tên / phiên bản thư viện (chi tiết lưu trong update_state.json)."""
         if self.changed:
-            return f"Đã cập nhật yt-dlp {self.before} → {self.after} (bản {channel})."
+            return "Đã cập nhật lên bản mới nhất — sẵn sàng sử dụng."
         if self.python_too_old:
-            return f"yt-dlp {self.after} (bản {channel}) — không lên được bản mới nhất."
+            return "Có bản cập nhật mới nhưng cần cài lại phần mềm."
         if self.ok:
-            return f"yt-dlp {self.after} (bản {channel}) — đã là bản mới nhất."
-        return f"yt-dlp {self.after or '?'} (bản {channel}) — không cập nhật được."
+            return "Tất cả thư viện đã là bản mới nhất — sẵn sàng sử dụng."
+        return "Chưa kiểm tra được cập nhật — vẫn dùng được bản hiện tại."
 
 
 # Thư viện phụ yt-dlp gợi ý nhưng phần mềm KHÔNG cài:
@@ -573,18 +593,18 @@ def update_ytdlp(channel: str | None = None) -> UpdateResult:
         # pip lặng lẽ giữ bản cũ khi bản mới không hỗ trợ Python trên máy → phải tự kiểm tra
         result.python_too_old = True
         result.warning = (
-            f"Python trên máy ({sys.version_info.major}.{sys.version_info.minor}) đã quá cũ: yt-dlp mới nhất "
-            f"({latest}) cần Python {requires}. Chương trình sẽ kẹt ở bản cũ và dần không tải được nữa. "
-            "Hãy cài Python mới từ https://www.python.org/downloads/ rồi chạy lại file cài đặt.")
+            "Đã có bản cập nhật mới nhưng máy này cần cài lại phần mềm mới nhận được. Nếu không cập nhật, "
+            "phần mềm sẽ dần không tải được nữa. Hãy liên hệ người bán để nhận file cài đặt mới nhất.")
     elif not ok:
         released = version_date(after)
         age = (date.today() - released).days if released else None
         result.warning = (
-            "Không cập nhật được yt-dlp" + (f" ({result.error})" if result.error else "")
-            + ". Hãy kiểm tra kết nối Internet."
-            + (f" Bản đang dùng phát hành cách đây {age} ngày." if age is not None else ""))
+            "Chưa kiểm tra được cập nhật. Hãy kiểm tra kết nối Internet rồi bấm “⟳ Kiểm tra cập nhật”."
+            + (f" Bản đang dùng đã {age} ngày chưa được cập nhật." if age is not None and age > 30 else ""))
+    # Chi tiết kỹ thuật (tên / phiên bản thư viện, lỗi) chỉ lưu lại để hỗ trợ khách, không hiển thị
     save_state(channel=channel, last_check=datetime.now().isoformat(timespec="seconds"),
-               last_version=after, last_ok=ok)
+               last_version=after, last_ok=ok, last_error=result.error,
+               python_too_old=result.python_too_old)
     return result
 
 
@@ -665,11 +685,11 @@ class ChannelDownloader:
             pass
 
         def warning(self, msg):
-            self.outer.log("   ⚠ " + msg)
+            self.outer.log("   ⚠ " + clean_library_message(msg))
 
         def error(self, msg):
             if not self.mute_errors:
-                self.outer.log("   ✖ " + msg)
+                self.outer.log("   ✖ " + clean_library_message(msg))
 
     def _base_params(self) -> dict:
         params = {
@@ -833,7 +853,8 @@ class ChannelDownloader:
 
         ffmpeg = find_ffmpeg()
         if not ffmpeg:
-            self.log("⚠ Không tìm thấy ffmpeg — chỉ tải được định dạng có sẵn tiếng (thường tối đa 720p).")
+            self.log("⚠ Thiếu thành phần ghép hình và tiếng — chỉ tải được định dạng có sẵn tiếng (thường tối đa "
+                     "720p). Hãy chạy lại file cài đặt để sửa.")
 
         if target.kind == "youtube_channel":
             channel_name, entries = self.list_videos(target.url)
@@ -1077,9 +1098,8 @@ class ChannelDownloader:
                     broken = c["broken"]
                 if broken >= BROKEN_STREAK:
                     raise ExtractorBroken(
-                        f"{BROKEN_STREAK} video liên tiếp tải lỗi theo cùng một kiểu — có vẻ YouTube "
-                        f"vừa thay đổi và bản yt-dlp đang dùng ({yt_dlp.version.__version__}, "
-                        f"bản {CHANNELS[get_channel()]}) chưa theo kịp.")
+                        f"{BROKEN_STREAK} video liên tiếp tải lỗi theo cùng một kiểu — có vẻ {site} "
+                        "vừa thay đổi và phần mềm cần bản cập nhật mới để tải tiếp.")
         except Exception as e:  # tiếp tục với video kế tiếp
             count("failed", f"{vid}  {title}  ({e})")
             self.log(f"   ✖ {e}")
@@ -1355,7 +1375,7 @@ def run_gui():
     ver_lbl = ttk.Label(upd, text="")
     ver_lbl.pack(side="left")
     nightly_var = tk.BooleanVar(value=get_channel() == "nightly")
-    nightly_chk = ttk.Checkbutton(upd, text="Dùng bản thử nghiệm (nightly)", variable=nightly_var)
+    nightly_chk = ttk.Checkbutton(upd, text="Dùng bản cập nhật thử nghiệm", variable=nightly_var)
     nightly_chk.pack(side="right")
     update_btn = ttk.Button(upd, text="⟳ Kiểm tra cập nhật")
     update_btn.pack(side="right", padx=8)
@@ -1413,15 +1433,16 @@ def run_gui():
         """reason: 'startup' | 'manual' | 'channel' | 'broken'"""
         state["updating"] = True
         set_idle()
-        ver_lbl.configure(text="⟳ Đang kiểm tra cập nhật yt-dlp…", foreground="")
+        ver_lbl.configure(text="⟳ Đang kiểm tra cập nhật…", foreground="")
         if reason == "startup":
-            overall_lbl.configure(text="Đang kiểm tra cập nhật yt-dlp, chờ chút…")
+            overall_lbl.configure(text="Đang kiểm tra cập nhật, chờ chút…")
 
         def work():
             try:
                 result = update_ytdlp(channel)
             except Exception as e:
-                result = UpdateResult(channel or get_channel(), None, None, False, str(e), f"Lỗi khi cập nhật: {e}")
+                result = UpdateResult(channel or get_channel(), None, None, False, str(e),
+                                      "Chưa kiểm tra được cập nhật. Hãy thử lại sau bằng nút “⟳ Kiểm tra cập nhật”.")
             events.put(("update_done", result, reason))
 
         threading.Thread(target=work, daemon=True).start()
@@ -1437,7 +1458,7 @@ def run_gui():
         if result.warning:
             append_log("⚠ " + result.warning)
             if reason != "startup" or result.python_too_old:
-                messagebox.showwarning("Cập nhật yt-dlp", result.warning)
+                messagebox.showwarning("Cập nhật", result.warning)
         set_idle()
 
         # Bản yt-dlp cũ đã được nạp trong phiên này → phải mở lại chương trình mới dùng được bản mới
@@ -1445,7 +1466,7 @@ def run_gui():
         if reason == "broken":
             if result.changed:
                 messagebox.showinfo(
-                    "Đã có bản yt-dlp mới",
+                    "Đã có bản cập nhật",
                     f"{result.summary()}\n\nChương trình sẽ mở lại. Sau đó bấm “Tải về” lần nữa — "
                     "video đã tải xong sẽ được bỏ qua.")
                 restart_program()
@@ -1453,10 +1474,10 @@ def run_gui():
             elif not result.warning:
                 messagebox.showwarning(
                     "Chưa có bản sửa",
-                    "Bạn đang dùng bản yt-dlp mới nhất nhưng nó chưa kịp sửa lỗi này.\n"
-                    "Nhóm phát triển yt-dlp thường sửa trong vài ngày — hãy thử lại sau.")
+                    "Bạn đang dùng bản mới nhất nhưng bản này chưa kịp sửa lỗi trên.\n"
+                    "Bản sửa thường có trong vài ngày — hãy thử lại sau.")
         elif result.changed and loaded and messagebox.askyesno(
-                "Đã cập nhật yt-dlp",
+                "Đã cập nhật",
                 f"{result.summary()}\n\nCần mở lại chương trình để dùng bản mới. Mở lại ngay?"):
             restart_program()
             root.destroy()
@@ -1464,14 +1485,15 @@ def run_gui():
     def on_broken(message: str):
         if get_channel() == "stable":
             if messagebox.askyesno(
-                    "YouTube vừa thay đổi?",
-                    message + "\n\nBản sửa lỗi thường có trong bản thử nghiệm (nightly) của yt-dlp trước, "
-                    "vài ngày đến vài tuần sau mới có trong bản ổn định.\n\n"
-                    "Chuyển sang bản thử nghiệm rồi thử lại?\n"
-                    "(Có thể quay về bản ổn định bất cứ lúc nào bằng ô “Dùng bản thử nghiệm” ở cuối cửa sổ.)"):
+                    "Trang web vừa thay đổi?",
+                    message + "\n\nBản sửa lỗi thường có trong bản cập nhật thử nghiệm trước, "
+                    "vài ngày đến vài tuần sau mới có trong bản chính thức.\n\n"
+                    "Chuyển sang bản cập nhật thử nghiệm rồi thử lại?\n"
+                    "(Có thể quay về bản chính thức bất cứ lúc nào bằng ô “Dùng bản cập nhật thử nghiệm” ở cuối "
+                    "cửa sổ.)"):
                 start_update("broken", "nightly")
         else:
-            append_log("Đang tìm bản thử nghiệm mới hơn…")
+            append_log("Đang tìm bản cập nhật thử nghiệm mới hơn…")
             start_update("broken", "nightly")
 
     def on_channel_toggle():
@@ -1664,9 +1686,9 @@ def run_cli(argv):
                    help="Dừng khi ổ đĩa còn trống ít hơn mức này (mặc định 2)")
     p.add_argument("--parallel", type=int, choices=[1, 2, 3], default=2, metavar="N",
                    help="Số video tải cùng lúc: 1, 2 hoặc 3 (mặc định 2)")
-    p.add_argument("--no-update", action="store_true", help="Không tự cập nhật yt-dlp trước khi tải")
+    p.add_argument("--no-update", action="store_true", help="Không tự kiểm tra cập nhật trước khi tải")
     p.add_argument("--channel", choices=list(CHANNELS),
-                   help="Chọn bản yt-dlp: stable (ổn định) hoặc nightly (thử nghiệm). Lựa chọn được ghi nhớ.")
+                   help="Chọn bản cập nhật: stable (chính thức) hoặc nightly (thử nghiệm). Lựa chọn được ghi nhớ.")
     a = p.parse_args(argv)
 
     try:
@@ -1743,7 +1765,7 @@ def run_cli(argv):
         if a.channel:
             save_state(channel=a.channel)
     else:
-        print("⟳ Đang kiểm tra cập nhật yt-dlp…", flush=True)
+        print("⟳ Đang kiểm tra cập nhật…", flush=True)
         result = update_ytdlp(a.channel)
         print("   " + result.summary())
         if result.warning:
@@ -1784,11 +1806,11 @@ def run_cli(argv):
         return 130
     except ExtractorBroken:
         if get_channel() == "stable":
-            print("\nBản sửa lỗi thường có trong bản thử nghiệm (nightly) của yt-dlp trước. Thử chạy lại với:\n"
+            print("\nBản sửa lỗi thường có trong bản cập nhật thử nghiệm trước. Thử chạy lại với:\n"
                   f"   run.bat {a.url} --channel nightly\n"
-                  "(Quay về bản ổn định sau bằng --channel stable.)")
+                  "(Quay về bản chính thức sau bằng --channel stable.)")
         else:
-            print("\nĐang dùng bản thử nghiệm mới nhất nhưng chưa có bản sửa. Hãy thử lại sau vài ngày.")
+            print("\nĐang dùng bản cập nhật thử nghiệm mới nhất nhưng chưa có bản sửa. Hãy thử lại sau vài ngày.")
         return 4
     except StopRun:
         return 3  # lý do đã được in ra trong log
