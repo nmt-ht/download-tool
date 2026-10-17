@@ -1,6 +1,6 @@
 # YouTube Channel Downloader
 
-Dán link 1 kênh YouTube → tải toàn bộ video của kênh đó về máy.
+Dán link kênh, playlist hoặc 1 video (YouTube, Bilibili, Dailymotion, TikTok, Douyin, Ixigua…), phần mềm tải tất cả video về máy.
 
 ## Cách chạy
 
@@ -8,10 +8,37 @@ Yêu cầu: Windows + Python 3.10 trở lên. Nên có thêm Node.js hoặc Deno
 
 **Giao diện:** bấm đúp `run.bat`. Lần đầu chạy sẽ tự cài thư viện (yt-dlp, ffmpeg).
 
-1. Dán link kênh, ví dụ `https://www.youtube.com/@tenkenh` (link `/videos`, `/channel/UC...`, `/c/...`, `/user/...` đều dùng được)
-2. Chọn thư mục lưu, chất lượng, loại video (Videos / Shorts / Live)
-3. Tuỳ chọn: tick **Chỉ tải video có giấy phép Creative Commons**
-4. Bấm **Tải toàn bộ kênh**. Nếu không bật chế độ Creative Commons, phần mềm sẽ hỏi bạn xác nhận mình có quyền tải nội dung này.
+1. Dán link, ví dụ `https://www.youtube.com/@tenkenh`, `https://space.bilibili.com/123456/video` hoặc link 1 video bất kỳ. Xem bảng **Các trang được hỗ trợ** bên dưới.
+2. Chọn thư mục lưu và chất lượng. Riêng với kênh YouTube, chọn thêm loại video (Videos / Shorts / Live).
+3. Với Douyin và Ixigua: chọn **firefox** ở mục **Cookies từ trình duyệt**. Xem phần **Trang cần cookies** bên dưới.
+4. Tuỳ chọn: tick **Chỉ tải video có giấy phép Creative Commons** (chỉ có tác dụng với YouTube).
+5. Bấm **Tải về**. Nếu không bật chế độ Creative Commons, phần mềm sẽ hỏi bạn xác nhận mình có quyền tải nội dung này.
+
+## Các trang được hỗ trợ
+
+Phần mềm dùng thư viện yt-dlp nên đọc được hơn 1.700 trang. Các trang thường dùng (đã thử thực tế):
+
+| Trang | Video lẻ | Cả kênh / playlist | Ghi chú |
+|---|---|---|---|
+| YouTube | ✅ | ✅ kênh (Videos / Shorts / Live), playlist | |
+| Bilibili | ✅ | ✅ toàn bộ video của 1 tài khoản (`space.bilibili.com/…/video`), bộ sưu tập, danh sách yêu thích | Không đăng nhập thì tối đa 1080p. Gửi nhiều yêu cầu liên tục sẽ bị chặn tạm thời (mã 412 / 352): phần mềm tự dừng và hướng dẫn. Nên dùng cookies Firefox và tải 1 video cùng lúc |
+| Dailymotion | ✅ | ✅ kênh, playlist | |
+| TikTok | ✅ | ❌ trang tài khoản đang lỗi ở yt-dlp | Dán link từng video |
+| Douyin | ✅ cần cookies | ❌ | Dán link từng video `douyin.com/video/…` |
+| Ixigua | ✅ cần cookies | ❌ | |
+| Kuaishou | ❌ | ❌ | yt-dlp không hỗ trợ trang này |
+
+Các trang khác (Vimeo, Facebook, Weibo, Youku, iQiyi, AcFun…) cứ dán link vào thử. Nếu trang không hỗ trợ, phần mềm sẽ báo lỗi kèm lý do.
+
+### Trang cần cookies (Douyin, Ixigua)
+
+Các trang này chỉ cho tải khi có cookies của trình duyệt. **Không cần đăng nhập.**
+
+1. Mở **Firefox**, vào trang đó (ví dụ douyin.com) và xem 1 video bất kỳ.
+2. Đóng Firefox.
+3. Trong phần mềm, chọn **firefox** ở mục **Cookies từ trình duyệt**, rồi bấm **Tải về**.
+
+Trên Windows, Chrome và Edge thường khoá cookies nên phần mềm không đọc được. Vì vậy nên dùng Firefox.
 
 **Dòng lệnh:**
 
@@ -26,7 +53,7 @@ run.bat https://www.youtube.com/@tenkenh -o D:\Videos -q 1080 --cc-only
 | `--shorts` / `--live` | Tải cả Shorts / video Live đã phát |
 | `--no-videos` | Bỏ tab Videos thường |
 | `--subs` | Tải phụ đề tiếng Việt và tiếng Anh |
-| `--cookies-from-browser chrome` | Dùng đăng nhập của trình duyệt cho video giới hạn tuổi hoặc dành cho hội viên |
+| `--cookies-from-browser firefox` | Dùng cookies của trình duyệt: bắt buộc cho Douyin / Ixigua; cũng dùng cho video giới hạn tuổi hoặc dành cho hội viên |
 | `--cc-only` | Chỉ tải video có giấy phép Creative Commons, bỏ qua các video khác |
 | `--i-have-rights` | Xác nhận bạn có quyền tải nội dung này, bỏ qua câu hỏi xác nhận (dùng khi chạy tự động) |
 | `--parallel 2` | Số video tải cùng lúc: `1`, `2` hoặc `3` (mặc định `2`) |
@@ -38,10 +65,11 @@ Nếu không có `--cc-only` hoặc `--i-have-rights`, chương trình sẽ hỏ
 ## Kết quả
 
 ```
-<thư mục lưu>/<Tên kênh>/
+<thư mục lưu>/<Tên kênh YouTube>/          ← link kênh YouTube
+<thư mục lưu>/<Tên trang> - <Tên kênh>/    ← các link khác, vd. "Bilibili - 某UP主"
     Videos/2024-05-01 - Tiêu đề [videoId].mp4
-    Shorts/...
-    Live/...
+    Shorts/...   (chỉ kênh YouTube)
+    Live/...     (chỉ kênh YouTube)
     downloaded.txt   ← danh sách video đã tải xong
     failed.txt       ← video lỗi (nếu có)
     ATTRIBUTION.txt  ← chế độ CC: tiêu đề, tác giả, link, giấy phép của từng video

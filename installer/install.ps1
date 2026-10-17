@@ -24,7 +24,7 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
 $AppName = 'YouTube Channel Downloader'
-$AppVersion = '1.4.0'
+$AppVersion = '1.5.0'
 $RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\YouTubeChannelDownloader'
 $Src = Join-Path $PSScriptRoot 'app'
 $RuntimeDir = Join-Path $InstallDir 'runtime'       # Python / Node.js riêng của chương trình
@@ -211,7 +211,7 @@ if (-not (Test-Path $VenvPy)) {
 & $VenvPy -m pip install --disable-pip-version-check -q --upgrade pip
 & $VenvPy -m pip install --disable-pip-version-check -q --upgrade -r (Join-Path $InstallDir 'requirements.txt')
 if ($LASTEXITCODE -ne 0) { Fail 'Cài thư viện thất bại. Kiểm tra kết nối Internet rồi chạy lại CaiDat.bat.' }
-& $VenvPy -c "import yt_dlp, imageio_ffmpeg, cryptography; print('yt-dlp', yt_dlp.version.__version__); print('ffmpeg', imageio_ffmpeg.get_ffmpeg_exe())"
+& $VenvPy -c "import yt_dlp, imageio_ffmpeg, cryptography, curl_cffi; print('yt-dlp', yt_dlp.version.__version__); print('ffmpeg', imageio_ffmpeg.get_ffmpeg_exe())"
 if ($LASTEXITCODE -ne 0) { Fail 'Kiểm tra thư viện thất bại.' }
 Say 'OK' Green
 

@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -65,15 +66,16 @@ QUALITIES = {
 TABS = {"videos": "Videos", "shorts": "Shorts", "streams": "Live"}
 
 RIGHTS_NOTICE = (
-    "Video trên YouTube thuộc bản quyền của người tạo ra chúng. Điều khoản dịch vụ của YouTube "
-    "không cho phép tải video nếu không được chủ sở hữu cho phép.\n\n"
+    "Video trên YouTube, Bilibili, Dailymotion, TikTok, Douyin… thuộc bản quyền của người tạo ra chúng. "
+    "Điều khoản dịch vụ của các trang này thường không cho phép tải video nếu không được chủ sở hữu "
+    "cho phép.\n\n"
     "Chỉ tiếp tục nếu bạn có quyền tải nội dung này, ví dụ:\n"
-    "  • đây là kênh của chính bạn\n"
+    "  • đây là kênh / video của chính bạn\n"
     "  • video có giấy phép Creative Commons\n"
-    "  • chủ kênh đã cho phép bạn tải\n\n"
+    "  • chủ sở hữu đã cho phép bạn tải\n\n"
     "Không đăng lại hay dùng cho mục đích thương mại khi chưa được phép."
 )
-RIGHTS_QUESTION = "Bạn xác nhận mình có quyền tải nội dung của kênh này?"
+RIGHTS_QUESTION = "Bạn xác nhận mình có quyền tải nội dung này?"
 
 
 def is_creative_commons(info: dict) -> bool:
@@ -87,7 +89,8 @@ LIVE_STATUSES = {
     "post_live": "vừa phát xong, YouTube chưa xử lý xong",
 }
 UPCOMING_ERRORS = ("this live event will begin", "premieres in", "premiere will begin")
-RATE_LIMIT_ERRORS = ("http error 429", "too many requests", "not a bot", "rate-limit", "rate limit")
+RATE_LIMIT_ERRORS = ("http error 429", "too many requests", "not a bot", "rate-limit", "rate limit",
+                     "blocked by server (412)", "rejected by server (352)")  # 412 / 352: Bilibili chống thu thập
 DISK_FULL_ERRORS = ("no space left", "errno 28", "winerror 112", "not enough space on the disk")
 # Dấu hiệu yt-dlp chưa theo kịp thay đổi của YouTube (cần bản yt-dlp mới hơn)
 EXTRACTOR_BROKEN_ERRORS = (
@@ -96,15 +99,19 @@ EXTRACTOR_BROKEN_ERRORS = (
     "precondition check failed", "http error 403", "please report this issue",
 )
 BROKEN_STREAK = 3  # số video lỗi kiểu này liên tiếp thì dừng
+# Trang bắt buộc có cookies trình duyệt (Douyin, Ixigua…): video nào cũng sẽ lỗi → dừng và hướng dẫn
+NEEDS_COOKIES_ERRORS = ("cookies (not necessarily logged in) are needed", "fresh cookies", "cookies are needed")
 
 GB = 1024 ** 3
 
 
 def classify_error(message: str) -> str:
-    """'rate_limit' | 'disk_full' | 'upcoming' | 'extractor_broken' | 'other'"""
+    """'rate_limit' | 'needs_cookies' | 'disk_full' | 'upcoming' | 'extractor_broken' | 'other'"""
     m = message.lower()
     if any(p in m for p in RATE_LIMIT_ERRORS):
         return "rate_limit"
+    if any(p in m for p in NEEDS_COOKIES_ERRORS):
+        return "needs_cookies"
     if any(p in m for p in DISK_FULL_ERRORS):
         return "disk_full"
     if any(p in m for p in UPCOMING_ERRORS):
@@ -125,8 +132,15 @@ def fmt_size(n: float) -> str:
 
 
 RATE_LIMIT_MESSAGE = (
-    "YouTube đang tạm chặn vì tải quá nhiều (lỗi 429 / yêu cầu xác minh không phải bot).\n"
+    "Trang web đang tạm chặn vì tải quá nhiều (lỗi 429 / yêu cầu xác minh không phải bot).\n"
     "Đã dừng để tránh bị chặn lâu hơn. Hãy đợi vài giờ rồi chạy lại — tool sẽ tải tiếp từ chỗ dừng."
+)
+BILIBILI_BLOCK_MESSAGE = (
+    "Bilibili đang tạm chặn máy này (mã 412 / 352 — cơ chế chống thu thập dữ liệu khi gửi nhiều yêu cầu).\n"
+    "Cách khắc phục:\n"
+    "  • đợi 15–30 phút rồi chạy lại — tool sẽ tải tiếp từ chỗ dừng\n"
+    "  • mở bilibili.com bằng Firefox, rồi chọn “firefox” ở mục Cookies từ trình duyệt (ít bị chặn hơn)\n"
+    "  • chọn 1 ở “Số video tải cùng lúc”"
 )
 
 
@@ -214,6 +228,90 @@ def normalize_channel_url(url: str) -> str:
             "Ví dụ hợp lệ: https://www.youtube.com/@tenkenh  hoặc  https://www.youtube.com/channel/UC..."
         )
     return re.sub(r"://(?:m\.|www\.)?youtube\.com", "://www.youtube.com", m.group(1), flags=re.IGNORECASE)
+
+
+# ---------------------------------------------------------------- các trang khác ngoài YouTube
+
+# Tên hiển thị theo tên miền (dùng cho log và tên thư mục lưu)
+SITE_NAMES = {
+    "youtube.com": "YouTube", "youtu.be": "YouTube", "bilibili.com": "Bilibili", "b23.tv": "Bilibili",
+    "dailymotion.com": "Dailymotion", "dai.ly": "Dailymotion", "douyin.com": "Douyin", "ixigua.com": "Ixigua",
+    "tiktok.com": "TikTok", "toutiao.com": "Toutiao", "weibo.com": "Weibo", "weibo.cn": "Weibo",
+    "youku.com": "Youku", "iqiyi.com": "iQiyi", "acfun.cn": "AcFun", "vimeo.com": "Vimeo",
+    "facebook.com": "Facebook", "instagram.com": "Instagram", "twitter.com": "X", "x.com": "X",
+}
+# Trang thư viện yt-dlp không hỗ trợ → báo ngay thay vì thử rồi lỗi
+UNSUPPORTED_SITES = {"kuaishou.com": "Kuaishou", "kwai.com": "Kwai", "gifshow.com": "Kuaishou"}
+# Trang bắt buộc cookies trình duyệt (không cần đăng nhập)
+COOKIE_SITES = {"Douyin", "Ixigua", "Toutiao"}
+
+
+@dataclass
+class Target:
+    kind: str  # "youtube_channel" (tải theo tab Videos/Shorts/Live) | "other" (kênh / playlist / video bất kỳ)
+    url: str
+    site: str  # tên trang để hiển thị
+
+
+def site_name(url: str) -> str:
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    for domain, name in SITE_NAMES.items():
+        if host == domain or host.endswith("." + domain):
+            return name
+    return re.sub(r"^(www|m)\.", "", host) or "web"
+
+
+def has_extractor(url: str) -> bool:
+    """yt-dlp có bộ đọc riêng cho link này không (không tính bộ đọc 'chung' Generic)."""
+    load_ytdlp()
+    from yt_dlp.extractor import gen_extractor_classes
+    return any(ie.ie_key() != "Generic" and ie.suitable(url) for ie in gen_extractor_classes())
+
+
+def resolve_target(url: str) -> Target:
+    """Nhận diện link người dùng dán vào. Báo lỗi (ValueError) nếu link hỏng / trang không hỗ trợ."""
+    url = url.strip()
+    if not url:
+        raise ValueError("Chưa nhập link.")
+    if url.startswith("@"):
+        url = "https://www.youtube.com/" + url
+    elif not re.match(r"^https?://", url, re.IGNORECASE):
+        url = "https://" + url
+    try:
+        return Target("youtube_channel", normalize_channel_url(url), "YouTube")
+    except ValueError:
+        pass
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if "." not in host:
+        raise ValueError("Link không hợp lệ.\nVí dụ: https://www.bilibili.com/video/BV…  hoặc  "
+                         "https://www.youtube.com/@tenkenh")
+    for domain, name in UNSUPPORTED_SITES.items():
+        if host == domain or host.endswith("." + domain):
+            raise ValueError(f"{name} hiện chưa được hỗ trợ: thư viện tải video (yt-dlp) không đọc được trang này.")
+    return Target("other", url, site_name(url))
+
+
+def explain_error(message: str, site: str) -> str:
+    """Đổi lỗi kỹ thuật của yt-dlp thành hướng dẫn dễ hiểu."""
+    m = message.lower()
+    kind = classify_error(message)
+    if kind == "rate_limit":
+        return BILIBILI_BLOCK_MESSAGE if site == "Bilibili" else RATE_LIMIT_MESSAGE
+    if kind == "needs_cookies":
+        return (f"{site} yêu cầu cookies trình duyệt (không cần đăng nhập).\n"
+                f"Cách làm: mở trang {site} bằng Firefox ít nhất 1 lần, rồi chọn “firefox” ở mục "
+                "“Cookies từ trình duyệt” và tải lại.\n"
+                "(Chrome / Edge trên Windows thường không cho đọc cookies — nên dùng Firefox.)")
+    if "impersonat" in m:
+        return ("Trang này cần thư viện curl_cffi. Hãy bấm “⟳ Kiểm tra cập nhật” rồi mở lại chương trình "
+                "(hoặc chạy lại file cài đặt).")
+    if "unsupported url" in m:
+        return f"Link này không được hỗ trợ ({site}). Hãy thử link của từng video."
+    if "secondary user id" in m:
+        return ("Không đọc được danh sách video của tài khoản TikTok (lỗi hiện tại của thư viện yt-dlp).\n"
+                "Hãy dán link của từng video.")
+    first = message.strip().splitlines()[0] if message.strip() else message
+    return re.sub(r"^ERROR:\s*", "", first)
 
 
 def default_output_dir() -> Path:
@@ -357,12 +455,12 @@ def update_ytdlp(channel: str | None = None) -> UpdateResult:
 
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "-q",
            "--timeout", "15", "--retries", "1"]
-    spec = "yt-dlp[default]"
+    spec = "yt-dlp[default,curl-cffi]"  # curl-cffi: cần cho Dailymotion và một số trang khác
     if channel == "nightly":
         cmd.append("--pre")
     elif before and "dev" in before and latest:
         # Từ nightly quay về bản ổn định: pip không tự hạ phiên bản nên phải chỉ rõ
-        spec = f"yt-dlp[default]=={latest}"
+        spec = f"yt-dlp[default,curl-cffi]=={latest}"
     try:
         r = subprocess.run(cmd + [spec], capture_output=True, text=True, timeout=300, **_no_window())
         error = (r.stderr or r.stdout).strip()
@@ -557,23 +655,67 @@ class ChannelDownloader:
                 self.log(f"   → {count} {TABS[tab]}")
         return channel_name or "channel", entries
 
+    def list_generic(self, target: Target) -> tuple[str, list[tuple]]:
+        """Link không phải kênh YouTube (Bilibili, Dailymotion, TikTok, Douyin…): kênh, playlist hoặc 1 video.
+        Trả về (tên, [(tab, video_id, title, live_status, url, ie_key), ...])."""
+        params = self._base_params() | {"extract_flat": "in_playlist", "skip_download": True,
+                                        "logger": self._Logger(self, mute_errors=True)}
+        self.log(f"🔎 Đang đọc link {target.site} ...")
+        if not has_extractor(target.url):
+            self.log(f"   ⚠ {target.site} không có trong danh sách trang được hỗ trợ — đang thử cách đọc chung, "
+                     "có thể không tải được.")
+        with yt_dlp.YoutubeDL(params) as ydl:
+            try:
+                info = ydl.extract_info(target.url, download=False)
+            except yt_dlp.utils.DownloadError as e:
+                raise StopRun(explain_error(str(e), target.site))
+        # Một số trang (vd. Dailymotion) chỉ trả về mã tài khoản → dùng mã đó làm tên
+        name = (info.get("channel") or info.get("uploader") or info.get("playlist_title")
+                or info.get("title") or info.get("id") or target.site)
+        entries = []
+        if info.get("_type") == "playlist":
+            for e in info.get("entries") or []:
+                if e and e.get("id"):
+                    entries.append(("videos", e["id"], e.get("title") or e["id"], e.get("live_status"),
+                                    e.get("webpage_url") or e.get("url"), e.get("ie_key") or e.get("extractor_key")))
+            self.log(f"   → {len(entries)} video")
+        else:
+            entries.append(("videos", info["id"], info.get("title") or info["id"], info.get("live_status"),
+                            info.get("webpage_url") or target.url, info.get("extractor_key")))
+            self.log("   → 1 video")
+        return name, entries
+
+    @staticmethod
+    def _as_entry(entry: tuple) -> tuple:
+        """Chuẩn hoá về (tab, video_id, title, live_status, url, ie_key); mục YouTube cũ chỉ có 4 phần tử."""
+        if len(entry) == 6:
+            return entry
+        tab, vid, title, live_status = entry
+        return tab, vid, title, live_status, f"https://www.youtube.com/watch?v={vid}", "Youtube"
+
     def run(self) -> tuple[int, int, int]:
         """Tải toàn bộ. Trả về (thành công, bỏ qua vì đã có, lỗi)."""
-        channel_url = normalize_channel_url(self.opts.url)
-        self.log(f"📺 Kênh: {channel_url}")
+        target = resolve_target(self.opts.url)
+        self.log(f"📺 {target.site}: {target.url}")
 
         ffmpeg = find_ffmpeg()
         if not ffmpeg:
             self.log("⚠ Không tìm thấy ffmpeg — chỉ tải được định dạng có sẵn tiếng (thường tối đa 720p).")
 
-        channel_name, entries = self.list_videos(channel_url)
+        if target.kind == "youtube_channel":
+            channel_name, entries = self.list_videos(target.url)
+        else:
+            channel_name, entries = self.list_generic(target)
+        entries = [self._as_entry(e) for e in entries]
         total = len(entries)
         if total == 0:
             self.log("Không tìm thấy video nào.")
             return 0, 0, 0
-        self.log(f"✅ Kênh “{channel_name}”: tổng {total} video cần xử lý.\n")
+        self.log(f"✅ “{channel_name}”: tổng {total} video cần xử lý.\n")
 
-        channel_dir = self.opts.output_dir / safe_name(channel_name)
+        # Kênh YouTube giữ nguyên tên thư mục cũ (để downloaded.txt cũ vẫn dùng được); trang khác có tên trang phía trước
+        folder = channel_name if target.kind == "youtube_channel" else f"{target.site} - {channel_name}"
+        channel_dir = self.opts.output_dir / safe_name(folder)
         channel_dir.mkdir(parents=True, exist_ok=True)
         archive = channel_dir / "downloaded.txt"
 
@@ -607,14 +749,14 @@ class ChannelDownloader:
         # Lọc trước video đã tải / đang phát (không cần hỏi YouTube), phần còn lại đưa vào hàng đợi
         todo: queue.Queue = queue.Queue()
         with yt_dlp.YoutubeDL(params) as probe:
-            for idx, (tab, vid, title, live_status) in enumerate(entries, 1):
-                if probe.in_download_archive({"id": vid, "extractor_key": "Youtube", "extractor": "youtube"}):
+            for idx, (tab, vid, title, live_status, url, ie_key) in enumerate(entries, 1):
+                if probe.in_download_archive({"id": vid, "extractor_key": ie_key, "url": url}):
                     c["skipped"] += 1
                 elif live_status in LIVE_STATUSES:
                     c["live"] += 1
                     self.log(f"[{idx}/{total}] ⏭ Bỏ qua ({LIVE_STATUSES[live_status]}): {title}")
                 else:
-                    todo.put((idx, tab, vid, title))
+                    todo.put((idx, tab, vid, title, url))
         c["done"] = c["skipped"] + c["live"]
         workers = max(1, min(self.opts.workers, todo.qsize()))
 
@@ -628,6 +770,12 @@ class ChannelDownloader:
             self.log(f"⏱ Nghỉ ngẫu nhiên {self.opts.sleep_min:g}–{self.opts.sleep_max:g} giây giữa các video.")
         if self.opts.cc_only:
             self.log("🔒 Chế độ Creative Commons: chỉ tải video có giấy phép CC, bỏ qua các video khác.")
+            if target.site != "YouTube":
+                self.log(f"   ⚠ {target.site} thường không ghi giấy phép của video → ở chế độ này có thể "
+                         "không video nào được tải.")
+        if target.site in COOKIE_SITES and not self.opts.cookies_browser:
+            self.log(f"⚠ {target.site} thường yêu cầu cookies trình duyệt — nếu lỗi, hãy chọn “firefox” ở mục "
+                     "Cookies từ trình duyệt.")
         self.log("")
         self.overall(c["done"], total, "")
 
@@ -636,7 +784,9 @@ class ChannelDownloader:
             tab_dir = channel_dir / TABS[tab]
             return params | {
                 "paths": {"home": str(tab_dir)},
-                "outtmpl": {"default": f"%(upload_date>%Y-%m-%d)s - %(title).{title_budget(tab_dir)}B [%(id)s].%(ext)s"},
+                # Trang không có ngày đăng → lấy theo timestamp, không có nữa thì "NA"
+                "outtmpl": {"default": "%(upload_date>%Y-%m-%d,timestamp>%Y-%m-%d|NA)s - "
+                                       f"%(title).{title_budget(tab_dir)}B [%(id)s].%(ext)s"},
                 "progress_hooks": [self._make_hook(worker)],
             }
 
@@ -650,7 +800,7 @@ class ChannelDownloader:
                     if self._cancel.is_set():
                         raise Cancelled()
                     try:
-                        idx, tab, vid, title = todo.get_nowait()
+                        idx, tab, vid, title, url = todo.get_nowait()
                     except queue.Empty:
                         return
                     if not first:
@@ -661,8 +811,8 @@ class ChannelDownloader:
                     if tab not in ydls:
                         ydls[tab] = yt_dlp.YoutubeDL(tab_params(tab, worker))
                     try:
-                        self._process_one(ydls[tab], worker, idx, total, vid, title, channel_dir,
-                                          attribution, c, failures)
+                        self._process_one(ydls[tab], worker, idx, total, vid, title, url, target.site,
+                                          channel_dir, attribution, c, failures)
                     finally:
                         self._report(worker, None)
                         with self._lock:
@@ -728,7 +878,7 @@ class ChannelDownloader:
             raise stop_exc  # giữ đúng loại lỗi (vd. ExtractorBroken) để giao diện xử lý riêng
         return ok, skipped, failed
 
-    def _process_one(self, ydl, worker: int, idx: int, total: int, vid: str, title: str,
+    def _process_one(self, ydl, worker: int, idx: int, total: int, vid: str, title: str, url: str, site: str,
                      channel_dir: Path, attribution: Path, c: dict, failures: list[str]):
         """Lấy thông tin, kiểm tra, rồi tải 1 video. Chạy trong luồng tải; cập nhật bộ đếm c (có khoá)."""
         def count(key, failure: str | None = None):
@@ -738,10 +888,12 @@ class ChannelDownloader:
                     failures.append(failure)
 
         self._check_disk(channel_dir, worker=worker)
-        url = f"https://www.youtube.com/watch?v={vid}"
         try:
             # Lấy thông tin trước, kiểm tra xong mới tải
             info = ydl.extract_info(url, download=False)
+            if ydl.in_download_archive(info):  # trang không cho biết mã video lúc lấy danh sách → kiểm tra ở đây
+                count("skipped")
+                return
             status = info.get("live_status")
             if status in LIVE_STATUSES:
                 count("live")
@@ -774,7 +926,9 @@ class ChannelDownloader:
                 raise Cancelled()
             kind = classify_error(str(e))
             if kind == "rate_limit":
-                raise StopRun(RATE_LIMIT_MESSAGE)
+                raise StopRun(explain_error(str(e), site))
+            if kind == "needs_cookies":  # video nào của trang này cũng sẽ lỗi → dừng và hướng dẫn
+                raise StopRun(explain_error(str(e), site))
             if kind == "disk_full":
                 self._check_disk(channel_dir, worker=worker)  # báo đúng dung lượng còn lại
                 raise StopRun("Ổ đĩa đã đầy. Hãy giải phóng dung lượng rồi chạy lại.")
@@ -883,7 +1037,7 @@ def run_gui():
             root.destroy()
             return
         root.deiconify()
-    root.geometry("780x720")
+    root.geometry("800x750")
     root.minsize(620, 460)
 
     events: queue.Queue = queue.Queue()
@@ -894,11 +1048,16 @@ def run_gui():
     frm.pack(fill="both", expand=True)
     frm.columnconfigure(1, weight=1)
 
-    ttk.Label(frm, text="Link kênh:").grid(row=0, column=0, sticky="w", **pad)
+    ttk.Label(frm, text="Link:").grid(row=0, column=0, sticky="nw", **pad)
+    url_box = ttk.Frame(frm)
+    url_box.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
     url_var = tk.StringVar()
-    url_entry = ttk.Entry(frm, textvariable=url_var)
-    url_entry.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
+    url_entry = ttk.Entry(url_box, textvariable=url_var)
+    url_entry.pack(fill="x")
     url_entry.focus()
+    ttk.Label(url_box, foreground="#666",
+              text="Kênh, playlist hoặc 1 video: YouTube, Bilibili, Dailymotion, TikTok, Douyin*, Ixigua*… "
+                   "(* cần chọn Cookies trình duyệt)").pack(anchor="w", pady=(2, 0))
 
     ttk.Label(frm, text="Lưu vào:").grid(row=1, column=0, sticky="w", **pad)
     out_var = tk.StringVar(value=str(default_output_dir()))
@@ -917,6 +1076,7 @@ def run_gui():
     q_var = tk.StringVar(value="1080p")
     ttk.Combobox(opt, textvariable=q_var, values=list(QUALITIES), state="readonly", width=18).pack(side="left", padx=(4, 16))
     tab_vars = {k: tk.BooleanVar(value=(k == "videos")) for k in TABS}
+    ttk.Label(opt, text="Kênh YouTube:").pack(side="left")
     for k, label in TABS.items():
         ttk.Checkbutton(opt, text=label, variable=tab_vars[k]).pack(side="left", padx=4)
     sub_var = tk.BooleanVar(value=False)
@@ -924,7 +1084,7 @@ def run_gui():
 
     opt2 = ttk.Frame(frm)
     opt2.grid(row=3, column=0, columnspan=3, sticky="ew", **pad)
-    ttk.Label(opt2, text="Cookies từ trình duyệt (cho video giới hạn tuổi/thành viên):").pack(side="left")
+    ttk.Label(opt2, text="Cookies từ trình duyệt (bắt buộc cho Douyin/Ixigua; nên dùng Firefox):").pack(side="left")
     ck_var = tk.StringVar(value="(không)")
     ttk.Combobox(opt2, textvariable=ck_var, values=["(không)", "chrome", "edge", "firefox", "brave", "opera"],
                  state="readonly", width=10).pack(side="left", padx=4)
@@ -948,7 +1108,7 @@ def run_gui():
 
     btns = ttk.Frame(frm)
     btns.grid(row=5, column=0, columnspan=3, sticky="ew", **pad)
-    start_btn = ttk.Button(btns, text="▶  Tải toàn bộ kênh")
+    start_btn = ttk.Button(btns, text="▶  Tải về")
     start_btn.pack(side="left")
     stop_btn = ttk.Button(btns, text="■  Dừng", state="disabled")
     stop_btn.pack(side="left", padx=8)
@@ -1069,7 +1229,7 @@ def run_gui():
             if result.changed:
                 messagebox.showinfo(
                     "Đã có bản yt-dlp mới",
-                    f"{result.summary()}\n\nChương trình sẽ mở lại. Sau đó bấm “Tải toàn bộ kênh” lần nữa — "
+                    f"{result.summary()}\n\nChương trình sẽ mở lại. Sau đó bấm “Tải về” lần nữa — "
                     "video đã tải xong sẽ được bỏ qua.")
                 restart_program()
                 root.destroy()
@@ -1106,14 +1266,20 @@ def run_gui():
     def start():
         if state["updating"] or downloading():
             return
-        tabs = [k for k, v in tab_vars.items() if v.get()]
-        if not tabs:
-            messagebox.showwarning("Thiếu lựa chọn", "Hãy chọn ít nhất 1 loại: Videos / Shorts / Live.")
-            return
         try:
-            normalize_channel_url(url_var.get())
+            target = resolve_target(url_var.get())
         except ValueError as e:
             messagebox.showerror("Link không hợp lệ", str(e))
+            return
+        tabs = [k for k, v in tab_vars.items() if v.get()]
+        if target.kind == "youtube_channel" and not tabs:
+            messagebox.showwarning("Thiếu lựa chọn", "Hãy chọn ít nhất 1 loại: Videos / Shorts / Live.")
+            return
+        if target.site in COOKIE_SITES and ck_var.get() == "(không)" and not messagebox.askyesno(
+                "Cần cookies trình duyệt",
+                f"{target.site} thường bắt buộc cookies trình duyệt (không cần đăng nhập).\n\n"
+                f"Nên: mở {target.site} bằng Firefox 1 lần, rồi chọn “firefox” ở mục Cookies từ trình duyệt.\n\n"
+                "Vẫn thử tải mà không dùng cookies?", icon="warning", default="no"):
             return
         if not cc_var.get() and not messagebox.askyesno(
                 "Xác nhận quyền tải", RIGHTS_NOTICE + "\n\n" + RIGHTS_QUESTION, icon="warning", default="no"):
@@ -1247,7 +1413,7 @@ def run_cli(argv):
     p = argparse.ArgumentParser(
         description="Tải toàn bộ video của 1 kênh YouTube.",
         epilog="Kích hoạt: run.bat --machine-code (xem mã máy) · run.bat --activate MÃ-KÍCH-HOẠT")
-    p.add_argument("url", help="Link kênh, vd. https://www.youtube.com/@tenkenh")
+    p.add_argument("url", help="Link kênh / playlist / video: YouTube, Bilibili, Dailymotion, TikTok, Douyin, Ixigua…")
     p.add_argument("-o", "--output", default=str(default_output_dir()),
                    help="Thư mục lưu (mặc định: Downloads\\YouTube, hoặc ổ còn trống nhiều nhất nếu ổ đó sắp đầy)")
     p.add_argument("-q", "--quality", default="best",
