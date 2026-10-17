@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import queue
@@ -389,6 +390,38 @@ def save_state(**changes) -> dict:
     except OSError:
         pass
     return state
+
+
+# ====================================================================== điều khoản sử dụng (EULA)
+# Lần đầu dùng phải đồng ý EULA.md. Phiên bản đã đồng ý được lưu trong update_state.json;
+# người bán tăng "Phiên bản:" trong EULA.md thì khách được hỏi lại.
+
+EULA_FILE = Path(__file__).resolve().parent / "EULA.md"
+EULA_QUESTION = "Bạn đã đọc và đồng ý với Điều khoản sử dụng?"
+
+
+def load_eula() -> tuple[str, str]:
+    """(phiên bản, nội dung để hiện cho khách) của EULA.md; ("", "") nếu không đọc được file.
+    Bỏ ghi chú bản nháp dành cho người bán và các ký hiệu Markdown."""
+    try:
+        text = EULA_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return "", ""
+    text = re.sub(r"<!-- BẢN NHÁP.*?<!-- /BẢN NHÁP -->\s*", "", text, flags=re.S)
+    m = re.search(r"^Phiên bản:\s*(\S+)", text, re.M)
+    version = m.group(1) if m else "sha-" + hashlib.sha256(text.encode()).hexdigest()[:12]
+    text = re.sub(r"^#+\s*", "", text, flags=re.M)
+    text = re.sub(r"^(\s*)- ", r"\1• ", text, flags=re.M)
+    text = text.replace("**", "").replace("`", "")
+    return version, text.strip()
+
+
+def eula_accepted(version: str) -> bool:
+    return load_state().get("eula_version") == version
+
+
+def accept_eula(version: str) -> None:
+    save_state(eula_version=version, eula_accepted_at=datetime.now().isoformat(timespec="seconds"))
 
 
 def get_channel() -> str:
@@ -1057,6 +1090,48 @@ class ChannelDownloader:
 APP_TITLE = "Download Tool"
 
 
+def eula_dialog(parent, text: str) -> bool:
+    """Hộp thoại Điều khoản sử dụng. Trả về True nếu bấm "Tôi đồng ý"."""
+    import tkinter as tk
+    from tkinter import ttk
+    from tkinter.scrolledtext import ScrolledText
+
+    # Không đặt transient: cửa sổ chính đang ẩn, hộp thoại transient sẽ ẩn theo
+    win = tk.Toplevel(parent)
+    win.title(f"Điều khoản sử dụng — {APP_TITLE}")
+    win.geometry("720x600")
+    win.minsize(480, 360)
+    result = {"ok": False}
+    frm = ttk.Frame(win, padding=12)
+    frm.pack(fill="both", expand=True)
+
+    ttk.Label(frm, text="Vui lòng đọc kỹ Điều khoản sử dụng trước khi dùng phần mềm.",
+              font=("Segoe UI", 11, "bold")).pack(anchor="w")
+    box = ScrolledText(frm, wrap="word", font=("Segoe UI", 10), padx=8, pady=6)
+    box.pack(fill="both", expand=True, pady=(8, 8))
+    box.insert("1.0", text)
+    box.configure(state="disabled")
+    ttk.Label(frm, text="Bấm “Tôi đồng ý” nghĩa là bạn đồng ý với toàn bộ Điều khoản trên, "
+                        "trong đó có cam kết chỉ tải nội dung mình có quyền.",
+              wraplength=680).pack(anchor="w")
+
+    def agree():
+        result["ok"] = True
+        win.destroy()
+
+    btns = ttk.Frame(frm)
+    btns.pack(fill="x", pady=(10, 0))
+    ttk.Button(btns, text="Thoát", command=win.destroy).pack(side="right")
+    agree_btn = ttk.Button(btns, text="Tôi đồng ý", command=agree)
+    agree_btn.pack(side="right", padx=8)
+    agree_btn.focus()
+
+    win.protocol("WM_DELETE_WINDOW", win.destroy)
+    win.grab_set()
+    parent.wait_window(win)
+    return result["ok"]
+
+
 def activation_dialog(parent, trial, expired: bool) -> bool:
     """Hộp thoại nhập mã kích hoạt. Trả về True nếu kích hoạt thành công."""
     import tkinter as tk
@@ -1123,6 +1198,21 @@ def run_gui():
 
     root = tk.Tk()
     root.title(APP_TITLE)
+    # Đồng ý Điều khoản sử dụng trước, để thời gian đọc không bị trừ vào 30 phút dùng thử
+    eula_version, eula_text = load_eula()
+    if not eula_text:
+        root.withdraw()
+        messagebox.showerror(APP_TITLE, "Thiếu file Điều khoản sử dụng (EULA.md) nên không thể chạy.\n"
+                                        "Hãy cài đặt lại phần mềm.")
+        root.destroy()
+        return
+    if not eula_accepted(eula_version):
+        root.withdraw()
+        if not eula_dialog(root, eula_text):
+            root.destroy()
+            return
+        accept_eula(eula_version)
+        root.deiconify()
     try:
         trial = trial_mod.Trial()
     except trial_mod.StorageError:
@@ -1566,6 +1656,8 @@ def run_cli(argv):
                    help="Chỉ tải video có giấy phép Creative Commons, bỏ qua các video khác")
     p.add_argument("--i-have-rights", action="store_true",
                    help="Xác nhận bạn có quyền tải nội dung này (bỏ qua câu hỏi xác nhận)")
+    p.add_argument("--accept-eula", action="store_true",
+                   help="Đồng ý Điều khoản sử dụng trong file EULA.md (bỏ qua câu hỏi đồng ý lần đầu)")
     p.add_argument("--sleep", default="2-5", metavar="MIN-MAX",
                    help="Nghỉ ngẫu nhiên giữa các video, tính bằng giây (mặc định 2-5; 0 = không nghỉ)")
     p.add_argument("--min-free-gb", type=float, default=2.0, metavar="GB",
@@ -1584,6 +1676,27 @@ def run_cli(argv):
             raise ValueError
     except ValueError:
         p.error("--sleep phải có dạng MIN-MAX, ví dụ 3-8, hoặc 0 để không nghỉ.")
+
+    # Đồng ý Điều khoản sử dụng trước khi bắt đầu tính giờ dùng thử
+    eula_version, eula_text = load_eula()
+    if not eula_text:
+        print("Lỗi: thiếu file Điều khoản sử dụng (EULA.md). Hãy cài đặt lại phần mềm.")
+        return 2
+    if not eula_accepted(eula_version):
+        if not a.accept_eula:
+            print(eula_text + "\n")
+            if not sys.stdin or not sys.stdin.isatty():
+                print(f"Cần đồng ý Điều khoản sử dụng: đọc file {EULA_FILE.name} rồi thêm --accept-eula.")
+                return 2
+            try:
+                answer = input(EULA_QUESTION + " (y/N): ").strip().lower()
+            except EOFError:
+                answer = ""
+            if answer not in ("y", "yes", "c", "co", "có"):
+                print("Đã huỷ. Bạn cần đồng ý Điều khoản sử dụng để dùng phần mềm.")
+                return 2
+            print()
+        accept_eula(eula_version)
 
     try:
         trial = trial_mod.Trial()

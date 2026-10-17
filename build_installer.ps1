@@ -25,7 +25,7 @@ Copy-Utf8Bom (Join-Path $root 'installer\HUONG-DAN-CAI-DAT.txt') (Join-Path $sta
 if ((Get-Content (Join-Path $root 'trial.py') -Raw) -match 'PUBLIC_KEY_HEX = "0{64}"') {
     throw 'Chưa tạo khoá kích hoạt. Chạy trước: python license_tool.py init'
 }
-foreach ($f in 'channel_downloader.py', 'trial.py', 'requirements.txt', 'run.bat', 'README.md', 'THIRD_PARTY_LICENSES.md') {
+foreach ($f in 'channel_downloader.py', 'trial.py', 'requirements.txt', 'run.bat', 'README.md', 'EULA.md', 'THIRD_PARTY_LICENSES.md') {
     Copy-Item (Join-Path $root $f) (Join-Path $stage 'app')
 }
 if (Get-ChildItem $stage -Recurse -Include 'license_tool.py', '*.pem') { throw 'Lộ file khoá bí mật trong gói cài đặt!' }

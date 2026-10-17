@@ -8,6 +8,8 @@ Yêu cầu: Windows + Python 3.10 trở lên. Nên có thêm Node.js hoặc Deno
 
 **Giao diện:** bấm đúp `run.bat`. Lần đầu chạy sẽ tự cài thư viện (yt-dlp, ffmpeg).
 
+Lần đầu mở, phần mềm hiện **Điều khoản sử dụng** ([EULA.md](EULA.md)). Phải bấm **Tôi đồng ý** mới dùng được; bấm **Thoát** thì chương trình đóng lại. Khi Điều khoản có phiên bản mới, phần mềm hỏi lại một lần.
+
 1. Dán link, ví dụ `https://www.youtube.com/@tenkenh`, `https://space.bilibili.com/123456/video` hoặc link 1 video bất kỳ. Xem bảng **Các trang được hỗ trợ** bên dưới.
 2. Chọn thư mục lưu và chất lượng. Riêng với kênh YouTube, chọn thêm loại video (Videos / Shorts / Live).
 3. Với Douyin và Ixigua: chọn **firefox** hoặc **file cookies.txt…** ở mục **Cookies**. Xem phần **Trang cần cookies** bên dưới.
@@ -66,11 +68,13 @@ run.bat https://www.youtube.com/@tenkenh -o D:\Videos -q 1080 --cc-only
 | `--tiktok-channel` | Với link 1 video TikTok: tải cả kênh của tài khoản đăng video đó |
 | `--cc-only` | Chỉ tải video có giấy phép Creative Commons, bỏ qua các video khác |
 | `--i-have-rights` | Xác nhận bạn có quyền tải nội dung này, bỏ qua câu hỏi xác nhận (dùng khi chạy tự động) |
+| `--accept-eula` | Đồng ý Điều khoản sử dụng trong [EULA.md](EULA.md), bỏ qua câu hỏi đồng ý lần đầu (dùng khi chạy tự động) |
 | `--parallel 2` | Số video tải cùng lúc: `1`, `2` hoặc `3` (mặc định `2`) |
 | `--sleep 2-5` | Nghỉ ngẫu nhiên giữa các video, tính bằng giây (mặc định `2-5`, `0` = không nghỉ) |
 | `--min-free-gb 2` | Dừng khi ổ đĩa còn trống ít hơn mức này (mặc định 2 GB) |
 
 Nếu không có `--cc-only` hoặc `--i-have-rights`, chương trình sẽ hỏi xác nhận trước khi tải.
+Lần đầu chạy (hoặc khi Điều khoản có phiên bản mới), nếu không có `--accept-eula` chương trình in Điều khoản sử dụng và hỏi y/N.
 
 ## Kết quả
 
