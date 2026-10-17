@@ -1,5 +1,5 @@
 """
-YouTube Channel Downloader
+Download Tool
 --------------------------
 Nhận link của 1 kênh YouTube và tải toàn bộ video của kênh đó về máy.
 
@@ -16,6 +16,7 @@ hoặc được chủ kênh cho phép).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import queue
@@ -24,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -165,6 +167,8 @@ class Options:
     subtitles: bool = False
     thumbnail: bool = False
     cookies_browser: str | None = None  # "chrome", "edge", "firefox"... cho video giới hạn tuổi / thành viên
+    cookies_file: str | None = None  # file cookies.txt (định dạng Netscape) xuất từ trình duyệt bằng tiện ích
+    tiktok_whole_channel: bool = False  # link 1 video TikTok → tải cả kênh của tài khoản đăng video đó
     cc_only: bool = False  # chỉ tải video có giấy phép Creative Commons
     workers: int = 2  # số video tải cùng lúc (1–3); đo thực tế: 2 nhanh nhất, 3 không nhanh hơn
     sleep_min: float = 2.0  # mỗi luồng nghỉ ngẫu nhiên giữa các video (giây); 0 = không nghỉ
@@ -244,6 +248,10 @@ SITE_NAMES = {
 UNSUPPORTED_SITES = {"kuaishou.com": "Kuaishou", "kwai.com": "Kwai", "gifshow.com": "Kuaishou"}
 # Trang bắt buộc cookies trình duyệt (không cần đăng nhập)
 COOKIE_SITES = {"Douyin", "Ixigua", "Toutiao"}
+COOKIE_FORMAT_MESSAGE = ("File cookies không đúng định dạng. Hãy xuất lại bằng tiện ích “Get cookies.txt LOCALLY” "
+                         "(chọn định dạng Netscape) khi đang mở trang cần tải.")
+# Link 1 video TikTok (kể cả link rút gọn vm./vt.tiktok.com)
+TIKTOK_VIDEO_RE = re.compile(r"/video/\d+|//(?:vm|vt)\.tiktok\.com/|tiktok\.com/t/", re.IGNORECASE)
 
 
 @dataclass
@@ -298,18 +306,22 @@ def explain_error(message: str, site: str) -> str:
     if kind == "rate_limit":
         return BILIBILI_BLOCK_MESSAGE if site == "Bilibili" else RATE_LIMIT_MESSAGE
     if kind == "needs_cookies":
-        return (f"{site} yêu cầu cookies trình duyệt (không cần đăng nhập).\n"
-                f"Cách làm: mở trang {site} bằng Firefox ít nhất 1 lần, rồi chọn “firefox” ở mục "
-                "“Cookies từ trình duyệt” và tải lại.\n"
-                "(Chrome / Edge trên Windows thường không cho đọc cookies — nên dùng Firefox.)")
+        return (f"{site} yêu cầu cookies trình duyệt (không cần đăng nhập). Chọn 1 trong 2 cách:\n"
+                f"  • mở trang {site} bằng Firefox ít nhất 1 lần, rồi chọn “firefox” ở mục Cookies\n"
+                f"  • hoặc mở {site} bằng trình duyệt bất kỳ, xuất cookies bằng tiện ích “Get cookies.txt LOCALLY”, "
+                "rồi chọn “file cookies.txt…” ở mục Cookies\n"
+                "(Chọn trực tiếp Chrome / Edge thường không được vì Windows khoá cookies của chúng.)")
+    if "netscape format" in m or "cookies file" in m:
+        return COOKIE_FORMAT_MESSAGE
     if "impersonat" in m:
         return ("Trang này cần thư viện curl_cffi. Hãy bấm “⟳ Kiểm tra cập nhật” rồi mở lại chương trình "
                 "(hoặc chạy lại file cài đặt).")
     if "unsupported url" in m:
         return f"Link này không được hỗ trợ ({site}). Hãy thử link của từng video."
     if "secondary user id" in m:
-        return ("Không đọc được danh sách video của tài khoản TikTok (lỗi hiện tại của thư viện yt-dlp).\n"
-                "Hãy dán link của từng video.")
+        return ("Không đọc được danh sách video từ trang tài khoản TikTok.\n"
+                "Thử cách khác: dán link 1 video bất kỳ của tài khoản này và tick ô "
+                "“TikTok: tải cả kênh từ link 1 video”.")
     first = message.strip().splitlines()[0] if message.strip() else message
     return re.sub(r"^ERROR:\s*", "", first)
 
@@ -447,6 +459,49 @@ class UpdateResult:
         return f"yt-dlp {self.after or '?'} (bản {channel}) — không cập nhật được."
 
 
+# Thư viện phụ yt-dlp gợi ý nhưng phần mềm KHÔNG cài:
+#   mutagen — giấy phép GPL-2.0+, chỉ dùng để nhúng ảnh bìa vào file (tính năng này không bật).
+#   Là thư viện Python chạy chung tiến trình nên dễ kéo cả phần mềm vào ràng buộc GPL → loại bỏ.
+EXCLUDED_DEPS = {"mutagen"}
+
+# Chạy bằng Python của môi trường cài đặt: đọc danh sách thư viện phụ (đúng phiên bản yt-dlp yêu cầu)
+# của các nhóm "default" và "curl-cffi", bỏ những thư viện trong EXCLUDED_DEPS
+_EXTRAS_SCRIPT = r"""
+import json, sys
+from importlib.metadata import requires
+from pip._vendor.packaging.requirements import Requirement
+excluded = set(json.loads(sys.argv[1]))
+specs = []
+for line in requires("yt-dlp") or []:
+    req = Requirement(line)
+    if req.name.lower() in excluded or req.marker is None:
+        continue
+    if any(req.marker.evaluate({"extra": e}) for e in ("default", "curl-cffi")):
+        extras = f"[{','.join(sorted(req.extras))}]" if req.extras else ""
+        specs.append(f"{req.name}{extras}{req.specifier}")
+print(json.dumps(specs))
+"""
+
+
+def sync_ytdlp_extras() -> tuple[bool, str]:
+    """Cài các thư viện phụ yt-dlp cần (curl-cffi cho Dailymotion, yt-dlp-ejs giải mã YouTube…),
+    trừ EXCLUDED_DEPS; gỡ mutagen nếu bản cũ đã lỡ cài. Trả về (thành công, lỗi)."""
+    try:
+        r = subprocess.run([sys.executable, "-c", _EXTRAS_SCRIPT, json.dumps(sorted(EXCLUDED_DEPS))],
+                           capture_output=True, text=True, timeout=60, **_no_window())
+        specs = json.loads(r.stdout.strip() or "[]")
+        if r.returncode != 0 or not specs:
+            return False, (r.stderr.strip().splitlines() or ["không đọc được danh sách thư viện phụ"])[-1]
+        r = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "-q",
+                            "--timeout", "15", "--retries", "1", *specs],
+                           capture_output=True, text=True, timeout=300, **_no_window())
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "-q", *sorted(EXCLUDED_DEPS)],
+                       capture_output=True, text=True, timeout=120, **_no_window())
+        return r.returncode == 0, (r.stderr or r.stdout).strip()
+    except Exception as e:
+        return False, str(e)
+
+
 def update_ytdlp(channel: str | None = None) -> UpdateResult:
     """Cập nhật yt-dlp (kèm thành phần giải mã yt-dlp-ejs) lên bản mới nhất của kênh đã chọn."""
     channel = channel or get_channel()
@@ -455,14 +510,18 @@ def update_ytdlp(channel: str | None = None) -> UpdateResult:
 
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "-q",
            "--timeout", "15", "--retries", "1"]
-    spec = "yt-dlp[default,curl-cffi]"  # curl-cffi: cần cho Dailymotion và một số trang khác
+    spec = "yt-dlp"  # thư viện phụ được cài riêng ở sync_ytdlp_extras (để bỏ được mutagen)
     if channel == "nightly":
         cmd.append("--pre")
     elif before and "dev" in before and latest:
         # Từ nightly quay về bản ổn định: pip không tự hạ phiên bản nên phải chỉ rõ
-        spec = f"yt-dlp[default,curl-cffi]=={latest}"
+        spec = f"yt-dlp=={latest}"
     try:
         r = subprocess.run(cmd + [spec], capture_output=True, text=True, timeout=300, **_no_window())
+        if r.returncode == 0:
+            extras_ok, extras_error = sync_ytdlp_extras()
+            if not extras_ok:
+                r = subprocess.CompletedProcess(r.args, 1, "", extras_error)
         error = (r.stderr or r.stdout).strip()
         # Mất mạng mà bản cũ vẫn "thoả yêu cầu" thì pip vẫn trả mã 0 → phải đọc cảnh báo kết nối
         offline = re.search(r"could not fetch url|failed to establish|connection|retrying|"
@@ -522,6 +581,7 @@ class ChannelDownloader:
         self._lock = threading.Lock()
         self._active: dict[int, tuple[float, float, float]] = {}  # luồng → (%, byte/s, giây còn lại)
         self._inflight: dict[int, int] = {}  # luồng → dung lượng đang giữ chỗ trên ổ đĩa
+        self._temp_files: list[str] = []  # bản sao tạm của file cookies, xoá khi chạy xong
 
     def cancel(self):
         self._cancel.set()
@@ -593,7 +653,18 @@ class ChannelDownloader:
             params["js_runtimes"] = js
         if self.opts.cookies_browser:
             params["cookiesfrombrowser"] = (self.opts.cookies_browser,)
+        if self.opts.cookies_file:
+            params["cookiefile"] = self._cookie_copy()
         return params
+
+    def _cookie_copy(self) -> str:
+        """yt-dlp ghi đè file cookies khi đóng → mỗi YoutubeDL dùng 1 bản sao tạm riêng: không sửa file của
+        người dùng, và các luồng tải không ghi đè lên nhau. Bản sao được xoá khi chạy xong."""
+        fd, path = tempfile.mkstemp(prefix="DownloadTool-cookies-", suffix=".txt")
+        os.close(fd)
+        shutil.copyfile(self.opts.cookies_file, path)
+        self._temp_files.append(path)
+        return path
 
     def _make_hook(self, worker: int):
         def hook(d):
@@ -664,13 +735,25 @@ class ChannelDownloader:
         if not has_extractor(target.url):
             self.log(f"   ⚠ {target.site} không có trong danh sách trang được hỗ trợ — đang thử cách đọc chung, "
                      "có thể không tải được.")
+        url, via_video, owner = target.url, False, None
         with yt_dlp.YoutubeDL(params) as ydl:
             try:
-                info = ydl.extract_info(target.url, download=False)
+                if target.site == "TikTok" and self.opts.tiktok_whole_channel and TIKTOK_VIDEO_RE.search(url):
+                    # Trang tài khoản TikTok hay không đọc được → lấy mã tài khoản từ 1 video của tài khoản đó
+                    video = ydl.extract_info(url, download=False)
+                    if not video.get("channel_id"):
+                        raise StopRun("Không lấy được mã tài khoản TikTok từ video này.")
+                    owner = video.get("uploader") or video.get("channel") or video["channel_id"]
+                    self.log(f"   → tải cả kênh của tài khoản “{owner}”")
+                    url, via_video = f"tiktokuser:{video['channel_id']}", True
+                info = ydl.extract_info(url, download=False)
             except yt_dlp.utils.DownloadError as e:
+                if via_video and "secondary user id" in str(e).lower():
+                    raise StopRun("TikTok không cho đọc danh sách video của tài khoản này (đã thử cả cách lấy mã "
+                                  "tài khoản từ video). Hãy dán link từng video — bỏ tick ô “tải cả kênh”.")
                 raise StopRun(explain_error(str(e), target.site))
         # Một số trang (vd. Dailymotion) chỉ trả về mã tài khoản → dùng mã đó làm tên
-        name = (info.get("channel") or info.get("uploader") or info.get("playlist_title")
+        name = (owner or info.get("channel") or info.get("uploader") or info.get("playlist_title")
                 or info.get("title") or info.get("id") or target.site)
         entries = []
         if info.get("_type") == "playlist":
@@ -695,6 +778,23 @@ class ChannelDownloader:
 
     def run(self) -> tuple[int, int, int]:
         """Tải toàn bộ. Trả về (thành công, bỏ qua vì đã có, lỗi)."""
+        if self.opts.cookies_file:
+            if not Path(self.opts.cookies_file).is_file():
+                raise StopRun(f"Không tìm thấy file cookies: {self.opts.cookies_file}")
+            # Kiểm tra trước: file sai định dạng mà để yt-dlp tự phát hiện thì lỗi lặp lại cả lúc đóng
+            try:
+                from yt_dlp.cookies import YoutubeDLCookieJar
+                YoutubeDLCookieJar(self.opts.cookies_file).load(ignore_discard=True, ignore_expires=True)
+            except Exception:
+                raise StopRun(COOKIE_FORMAT_MESSAGE)
+        try:
+            return self._run()
+        finally:
+            for path in self._temp_files:  # bản sao tạm của file cookies
+                with contextlib.suppress(OSError):
+                    os.remove(path)
+
+    def _run(self) -> tuple[int, int, int]:
         target = resolve_target(self.opts.url)
         self.log(f"📺 {target.site}: {target.url}")
 
@@ -773,16 +873,17 @@ class ChannelDownloader:
             if target.site != "YouTube":
                 self.log(f"   ⚠ {target.site} thường không ghi giấy phép của video → ở chế độ này có thể "
                          "không video nào được tải.")
-        if target.site in COOKIE_SITES and not self.opts.cookies_browser:
-            self.log(f"⚠ {target.site} thường yêu cầu cookies trình duyệt — nếu lỗi, hãy chọn “firefox” ở mục "
-                     "Cookies từ trình duyệt.")
+        if target.site in COOKIE_SITES and not (self.opts.cookies_browser or self.opts.cookies_file):
+            self.log(f"⚠ {target.site} thường yêu cầu cookies trình duyệt — nếu lỗi, hãy chọn “firefox” hoặc "
+                     "“file cookies.txt…” ở mục Cookies.")
         self.log("")
         self.overall(c["done"], total, "")
 
         def tab_params(tab: str, worker: int) -> dict:
             # Mỗi loại (Videos / Shorts / Live) lưu vào 1 thư mục con riêng
             tab_dir = channel_dir / TABS[tab]
-            return params | {
+            extra = {"cookiefile": self._cookie_copy()} if self.opts.cookies_file else {}  # bản sao riêng mỗi luồng
+            return params | extra | {
                 "paths": {"home": str(tab_dir)},
                 # Trang không có ngày đăng → lấy theo timestamp, không có nữa thì "NA"
                 "outtmpl": {"default": "%(upload_date>%Y-%m-%d,timestamp>%Y-%m-%d|NA)s - "
@@ -953,7 +1054,7 @@ class ChannelDownloader:
 
 # ====================================================================== GUI
 
-APP_TITLE = "YouTube Channel Downloader"
+APP_TITLE = "Download Tool"
 
 
 def activation_dialog(parent, trial, expired: bool) -> bool:
@@ -1084,10 +1185,33 @@ def run_gui():
 
     opt2 = ttk.Frame(frm)
     opt2.grid(row=3, column=0, columnspan=3, sticky="ew", **pad)
-    ttk.Label(opt2, text="Cookies từ trình duyệt (bắt buộc cho Douyin/Ixigua; nên dùng Firefox):").pack(side="left")
+    ttk.Label(opt2, text="Cookies (bắt buộc cho Douyin/Ixigua):").pack(side="left")
+    COOKIE_FILE_CHOICE = "file cookies.txt…"
     ck_var = tk.StringVar(value="(không)")
-    ttk.Combobox(opt2, textvariable=ck_var, values=["(không)", "chrome", "edge", "firefox", "brave", "opera"],
-                 state="readonly", width=10).pack(side="left", padx=4)
+    ck_file = {"path": None}
+    ck_combo = ttk.Combobox(opt2, textvariable=ck_var, state="readonly", width=16,
+                            values=["(không)", "firefox", "chrome", "edge", "brave", "opera", COOKIE_FILE_CHOICE])
+    ck_combo.pack(side="left", padx=4)
+    ck_file_lbl = ttk.Label(opt2, text="", foreground="#666")
+    ck_file_lbl.pack(side="left")
+
+    def on_cookie_choice(_event=None):
+        """Chọn “file cookies.txt…” → hỏi file (xuất bằng tiện ích “Get cookies.txt LOCALLY” trên trình duyệt)."""
+        if ck_var.get() != COOKIE_FILE_CHOICE:
+            ck_file["path"] = None
+            ck_file_lbl.configure(text="(nên chọn firefox hoặc file cookies.txt)" if ck_var.get() in
+                                  ("chrome", "edge", "brave", "opera") else "")
+            return
+        path = filedialog.askopenfilename(title="Chọn file cookies.txt (định dạng Netscape)",
+                                          filetypes=[("cookies.txt", "*.txt"), ("Tất cả", "*.*")])
+        if path:
+            ck_file["path"] = path
+            ck_file_lbl.configure(text=Path(path).name)
+        else:
+            ck_var.set("(không)")
+            ck_file_lbl.configure(text="")
+
+    ck_combo.bind("<<ComboboxSelected>>", on_cookie_choice)
 
     opt3 = ttk.Frame(frm)
     opt3.grid(row=4, column=0, columnspan=3, sticky="ew", **pad)
@@ -1095,8 +1219,11 @@ def run_gui():
     ttk.Checkbutton(opt3, text="Chỉ tải video có giấy phép Creative Commons (được phép dùng lại)",
                     variable=cc_var).pack(anchor="w")
     sleep_var = tk.BooleanVar(value=True)
-    ttk.Checkbutton(opt3, text="Nghỉ ngẫu nhiên 2–5 giây giữa các video (giảm nguy cơ bị YouTube chặn)",
+    ttk.Checkbutton(opt3, text="Nghỉ ngẫu nhiên 2–5 giây giữa các video (giảm nguy cơ bị chặn)",
                     variable=sleep_var).pack(anchor="w")
+    tiktok_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(opt3, text="TikTok: dán link 1 video → tải cả kênh của tài khoản đăng video đó",
+                    variable=tiktok_var).pack(anchor="w")
     par_row = ttk.Frame(opt3)
     par_row.pack(anchor="w", pady=(2, 0))
     ttk.Label(par_row, text="Số video tải cùng lúc:").pack(side="left")
@@ -1278,7 +1405,8 @@ def run_gui():
         if target.site in COOKIE_SITES and ck_var.get() == "(không)" and not messagebox.askyesno(
                 "Cần cookies trình duyệt",
                 f"{target.site} thường bắt buộc cookies trình duyệt (không cần đăng nhập).\n\n"
-                f"Nên: mở {target.site} bằng Firefox 1 lần, rồi chọn “firefox” ở mục Cookies từ trình duyệt.\n\n"
+                f"Nên: mở {target.site} bằng Firefox 1 lần rồi chọn “firefox” ở mục Cookies, hoặc xuất "
+                "cookies bằng tiện ích “Get cookies.txt LOCALLY” rồi chọn “file cookies.txt…”.\n\n"
                 "Vẫn thử tải mà không dùng cookies?", icon="warning", default="no"):
             return
         if not cc_var.get() and not messagebox.askyesno(
@@ -1290,7 +1418,9 @@ def run_gui():
             quality=QUALITIES[q_var.get()],
             tabs=tabs,
             subtitles=sub_var.get(),
-            cookies_browser=None if ck_var.get() == "(không)" else ck_var.get(),
+            cookies_browser=None if ck_var.get() in ("(không)", COOKIE_FILE_CHOICE) else ck_var.get(),
+            cookies_file=ck_file["path"] if ck_var.get() == COOKIE_FILE_CHOICE else None,
+            tiktok_whole_channel=tiktok_var.get(),
             cc_only=cc_var.get(),
             sleep_max=5.0 if sleep_var.get() else 0.0,
             workers=int(par_var.get()),
@@ -1391,6 +1521,11 @@ def run_gui():
 # ====================================================================== CLI
 
 def run_cli(argv):
+    # Bộ cài gọi lệnh này để cài thư viện phụ của yt-dlp (trừ mutagen — GPL)
+    if argv[:1] == ["--sync-deps"]:
+        ok, error = sync_ytdlp_extras()
+        print("OK" if ok else f"Lỗi: {error}")
+        return 0 if ok else 1
     # Lệnh kích hoạt không cần link kênh
     if argv and argv[0] in ("--machine-code", "--activate"):
         try:
@@ -1422,7 +1557,11 @@ def run_cli(argv):
     p.add_argument("--live", action="store_true", help="Tải cả video Live đã phát")
     p.add_argument("--no-videos", action="store_true", help="Không tải tab Videos thường")
     p.add_argument("--subs", action="store_true", help="Tải phụ đề (vi, en)")
-    p.add_argument("--cookies-from-browser", metavar="BROWSER", help="chrome | edge | firefox ...")
+    p.add_argument("--cookies-from-browser", metavar="BROWSER", help="firefox | chrome | edge ...")
+    p.add_argument("--cookies", metavar="FILE",
+                   help="File cookies.txt (định dạng Netscape, xuất bằng tiện ích “Get cookies.txt LOCALLY”)")
+    p.add_argument("--tiktok-channel", action="store_true",
+                   help="Với link 1 video TikTok: tải cả kênh của tài khoản đăng video đó")
     p.add_argument("--cc-only", action="store_true",
                    help="Chỉ tải video có giấy phép Creative Commons, bỏ qua các video khác")
     p.add_argument("--i-have-rights", action="store_true",
@@ -1500,7 +1639,8 @@ def run_cli(argv):
 
     dl = ChannelDownloader(
         Options(url=a.url, output_dir=Path(a.output), quality=quality, tabs=tabs,
-                subtitles=a.subs, cookies_browser=a.cookies_from_browser, cc_only=a.cc_only,
+                subtitles=a.subs, cookies_browser=a.cookies_from_browser, cookies_file=a.cookies,
+                tiktok_whole_channel=a.tiktok_channel, cc_only=a.cc_only,
                 sleep_min=sleep_min, sleep_max=sleep_max, min_free_gb=a.min_free_gb, workers=a.parallel),
         log=lambda m: print(m, flush=True),
         progress=progress,

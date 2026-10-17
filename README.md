@@ -1,4 +1,4 @@
-# YouTube Channel Downloader
+# Download Tool
 
 Dán link kênh, playlist hoặc 1 video (YouTube, Bilibili, Dailymotion, TikTok, Douyin, Ixigua…), phần mềm tải tất cả video về máy.
 
@@ -10,7 +10,7 @@ Yêu cầu: Windows + Python 3.10 trở lên. Nên có thêm Node.js hoặc Deno
 
 1. Dán link, ví dụ `https://www.youtube.com/@tenkenh`, `https://space.bilibili.com/123456/video` hoặc link 1 video bất kỳ. Xem bảng **Các trang được hỗ trợ** bên dưới.
 2. Chọn thư mục lưu và chất lượng. Riêng với kênh YouTube, chọn thêm loại video (Videos / Shorts / Live).
-3. Với Douyin và Ixigua: chọn **firefox** ở mục **Cookies từ trình duyệt**. Xem phần **Trang cần cookies** bên dưới.
+3. Với Douyin và Ixigua: chọn **firefox** hoặc **file cookies.txt…** ở mục **Cookies**. Xem phần **Trang cần cookies** bên dưới.
 4. Tuỳ chọn: tick **Chỉ tải video có giấy phép Creative Commons** (chỉ có tác dụng với YouTube).
 5. Bấm **Tải về**. Nếu không bật chế độ Creative Commons, phần mềm sẽ hỏi bạn xác nhận mình có quyền tải nội dung này.
 
@@ -23,7 +23,7 @@ Phần mềm dùng thư viện yt-dlp nên đọc được hơn 1.700 trang. Cá
 | YouTube | ✅ | ✅ kênh (Videos / Shorts / Live), playlist | |
 | Bilibili | ✅ | ✅ toàn bộ video của 1 tài khoản (`space.bilibili.com/…/video`), bộ sưu tập, danh sách yêu thích | Không đăng nhập thì tối đa 1080p. Gửi nhiều yêu cầu liên tục sẽ bị chặn tạm thời (mã 412 / 352): phần mềm tự dừng và hướng dẫn. Nên dùng cookies Firefox và tải 1 video cùng lúc |
 | Dailymotion | ✅ | ✅ kênh, playlist | |
-| TikTok | ✅ | ❌ trang tài khoản đang lỗi ở yt-dlp | Dán link từng video |
+| TikTok | ✅ | ⚠️ qua link 1 video | Trang tài khoản thường không đọc được. Dán link **1 video** của tài khoản và tick ô **TikTok: tải cả kênh**. Cách này chạy được với nhiều tài khoản (đã thử: 76 video), nhưng không phải tất cả |
 | Douyin | ✅ cần cookies | ❌ | Dán link từng video `douyin.com/video/…` |
 | Ixigua | ✅ cần cookies | ❌ | |
 | Kuaishou | ❌ | ❌ | yt-dlp không hỗ trợ trang này |
@@ -34,11 +34,19 @@ Các trang khác (Vimeo, Facebook, Weibo, Youku, iQiyi, AcFun…) cứ dán link
 
 Các trang này chỉ cho tải khi có cookies của trình duyệt. **Không cần đăng nhập.**
 
+**Cách 1 – Firefox:**
 1. Mở **Firefox**, vào trang đó (ví dụ douyin.com) và xem 1 video bất kỳ.
 2. Đóng Firefox.
-3. Trong phần mềm, chọn **firefox** ở mục **Cookies từ trình duyệt**, rồi bấm **Tải về**.
+3. Trong phần mềm, chọn **firefox** ở mục **Cookies**, rồi bấm **Tải về**.
 
-Trên Windows, Chrome và Edge thường khoá cookies nên phần mềm không đọc được. Vì vậy nên dùng Firefox.
+**Cách 2 – file cookies.txt (dùng được với mọi trình duyệt):**
+1. Cài tiện ích **Get cookies.txt LOCALLY** cho Chrome, Edge hoặc Firefox.
+2. Mở trang cần tải (ví dụ douyin.com), bấm vào tiện ích rồi chọn **Export**. Bạn sẽ có một file `.txt`.
+3. Trong phần mềm, chọn **file cookies.txt…** ở mục **Cookies**, chọn file vừa xuất, rồi bấm **Tải về**.
+
+Trên Windows, phần mềm không đọc trực tiếp được cookies của Chrome và Edge (Windows khoá chúng). Vì vậy nên dùng Firefox hoặc cách 2.
+
+Phần mềm chỉ dùng **bản sao tạm** của file cookies và xoá bản sao đó khi tải xong. File gốc của bạn không bị sửa. File cookies chứa thông tin đăng nhập nên **không gửi file này cho người khác**.
 
 **Dòng lệnh:**
 
@@ -54,6 +62,8 @@ run.bat https://www.youtube.com/@tenkenh -o D:\Videos -q 1080 --cc-only
 | `--no-videos` | Bỏ tab Videos thường |
 | `--subs` | Tải phụ đề tiếng Việt và tiếng Anh |
 | `--cookies-from-browser firefox` | Dùng cookies của trình duyệt: bắt buộc cho Douyin / Ixigua; cũng dùng cho video giới hạn tuổi hoặc dành cho hội viên |
+| `--cookies cookies.txt` | Dùng file cookies.txt (xuất bằng tiện ích "Get cookies.txt LOCALLY") |
+| `--tiktok-channel` | Với link 1 video TikTok: tải cả kênh của tài khoản đăng video đó |
 | `--cc-only` | Chỉ tải video có giấy phép Creative Commons, bỏ qua các video khác |
 | `--i-have-rights` | Xác nhận bạn có quyền tải nội dung này, bỏ qua câu hỏi xác nhận (dùng khi chạy tự động) |
 | `--parallel 2` | Số video tải cùng lúc: `1`, `2` hoặc `3` (mặc định `2`) |

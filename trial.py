@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 
 TRIAL_SECONDS = 30 * 60
+# Tên nội bộ của nơi lưu dữ liệu dùng thử. GIỮ NGUYÊN dù phần mềm đã đổi tên thành "Download Tool":
+# đổi tên này (hoặc REG_PATH) thì máy đã hết 30 phút sẽ được dùng thử lại từ đầu.
 APP_KEY = "YouTubeChannelDownloader"
 CONTACT = ""  # thông tin liên hệ để mua mã kích hoạt (vd. "Zalo 09xx xxx xxx"), hiện trong hộp thoại kích hoạt
 

@@ -1,4 +1,4 @@
-# Gỡ cài đặt YouTube Channel Downloader. Video đã tải KHÔNG bị xoá.
+# Gỡ cài đặt Download Tool. Video đã tải KHÔNG bị xoá.
 param(
     [string]$ShortcutDir = '',  # chỉ dùng khi kiểm thử (khớp với install.ps1 -ShortcutDir)
     [switch]$Yes
@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
-$AppName = 'YouTube Channel Downloader'
-$RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\YouTubeChannelDownloader'
+$AppName = 'Download Tool'
+$RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DownloadTool'
 $InstallDir = $PSScriptRoot
 
 Write-Host ''

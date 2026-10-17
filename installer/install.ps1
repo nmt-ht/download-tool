@@ -1,11 +1,11 @@
-﻿# Cài đặt YouTube Channel Downloader cho người dùng hiện tại (không cần quyền admin).
+﻿# Cài đặt Download Tool cho người dùng hiện tại (không cần quyền admin).
 #   - Máy chưa có Python 3.10+ / Node.js thì TỰ TẢI bản chính thức (python.org, nodejs.org) về
 #     cài riêng vào thư mục chương trình — không hỏi, không cần admin, không đụng bản có sẵn trên máy
 #   - Mọi file tải về đều được kiểm tra mã SHA-256 trước khi dùng
-#   - Chép chương trình vào %LOCALAPPDATA%\YouTubeChannelDownloader, tạo môi trường Python riêng
+#   - Chép chương trình vào %LOCALAPPDATA%\DownloadTool, tạo môi trường Python riêng
 #   - Tạo shortcut ở Desktop + Start Menu, đăng ký trong "Apps & features" để gỡ cài đặt
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'YouTubeChannelDownloader'),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'DownloadTool'),
     [string]$ShortcutDir = '',   # chỉ dùng khi kiểm thử: tạo shortcut vào thư mục này thay cho Desktop/Start Menu
     [switch]$NoRegister,         # chỉ dùng khi kiểm thử: không ghi vào "Apps & features"
     [switch]$ForceDownload,      # chỉ dùng khi kiểm thử: luôn tải Python/Node riêng dù máy đã có
@@ -23,9 +23,9 @@ $NodeSha256 = '2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71'
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
-$AppName = 'YouTube Channel Downloader'
-$AppVersion = '1.5.0'
-$RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\YouTubeChannelDownloader'
+$AppName = 'Download Tool'
+$AppVersion = '1.6.0'
+$RegKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DownloadTool'
 $Src = Join-Path $PSScriptRoot 'app'
 $RuntimeDir = Join-Path $InstallDir 'runtime'       # Python / Node.js riêng của chương trình
 $PyDir = Join-Path $RuntimeDir 'python'
@@ -54,7 +54,7 @@ function Get-Download($url, $dest, $sha256, $label) {
         $out = $null; $res = $null
         try {
             $req = [Net.HttpWebRequest]::Create($url)
-            $req.UserAgent = 'YouTubeChannelDownloader-Setup'
+            $req.UserAgent = 'DownloadTool-Setup'
             $req.Timeout = 30000; $req.ReadWriteTimeout = 30000
             $res = $req.GetResponse()
             $total = $res.ContentLength
@@ -194,6 +194,16 @@ if (-not $Js) {
 }
 Say "OK: $Js" Green
 
+# Bản cũ tên "YouTube Channel Downloader" (trước 1.6.0) → gỡ trước để máy không có 2 phần mềm trùng nhau.
+# Video đã tải và dữ liệu dùng thử / kích hoạt không bị ảnh hưởng. (Bỏ qua khi kiểm thử với -ShortcutDir.)
+$OldDir = Join-Path $env:LOCALAPPDATA 'YouTubeChannelDownloader'
+$OldUninstall = Join-Path $OldDir 'uninstall.ps1'
+if ((Test-Path $OldUninstall) -and ($OldDir -ne $InstallDir) -and -not $ShortcutDir) {
+    Step 'Gỡ bản cũ "YouTube Channel Downloader"'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $OldUninstall -Yes | Out-Null
+    Say 'OK' Green
+}
+
 Step 'Chép chương trình'
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 Copy-Item (Join-Path $Src '*') $InstallDir -Recurse -Force
@@ -211,7 +221,10 @@ if (-not (Test-Path $VenvPy)) {
 & $VenvPy -m pip install --disable-pip-version-check -q --upgrade pip
 & $VenvPy -m pip install --disable-pip-version-check -q --upgrade -r (Join-Path $InstallDir 'requirements.txt')
 if ($LASTEXITCODE -ne 0) { Fail 'Cài thư viện thất bại. Kiểm tra kết nối Internet rồi chạy lại CaiDat.bat.' }
-& $VenvPy -c "import yt_dlp, imageio_ffmpeg, cryptography, curl_cffi; print('yt-dlp', yt_dlp.version.__version__); print('ffmpeg', imageio_ffmpeg.get_ffmpeg_exe())"
+# Thư viện phụ của yt-dlp (curl-cffi, yt-dlp-ejs…) — cài theo đúng phiên bản yt-dlp yêu cầu, bỏ mutagen (GPL)
+& $VenvPy (Join-Path $InstallDir 'channel_downloader.py') --sync-deps
+if ($LASTEXITCODE -ne 0) { Fail 'Cài thư viện phụ thất bại. Kiểm tra kết nối Internet rồi chạy lại CaiDat.bat.' }
+& $VenvPy -c "import yt_dlp, imageio_ffmpeg, cryptography, curl_cffi, yt_dlp_ejs; print('yt-dlp', yt_dlp.version.__version__); print('ffmpeg', imageio_ffmpeg.get_ffmpeg_exe())"
 if ($LASTEXITCODE -ne 0) { Fail 'Kiểm tra thư viện thất bại.' }
 Say 'OK' Green
 
@@ -253,7 +266,7 @@ if (-not $NoRegister) {
     # Hiện trong Settings > Apps > Installed apps để gỡ cài đặt như phần mềm bình thường
     New-Item -Path $RegKey -Force | Out-Null
     $props = @{
-        DisplayName = $AppName; DisplayVersion = $AppVersion; Publisher = 'YouTube Channel Downloader'
+        DisplayName = $AppName; DisplayVersion = $AppVersion; Publisher = 'Download Tool'
         InstallLocation = $InstallDir; DisplayIcon = $icon
         UninstallString = "`"$powershellExe`" $uninstallCmd"
     }

@@ -11,12 +11,12 @@ YOUTUBE CHANNEL DOWNLOADER — HƯỚNG DẪN CÀI ĐẶT
      video), bộ cài tự tải bản chính thức về và cài luôn. Không cần quyền admin.
    - Lần đầu cài mất khoảng 2–5 phút tuỳ tốc độ mạng (cần Internet, tải tối đa ~110 MB).
 
-3. Xong! Mở chương trình bằng shortcut "YouTube Channel Downloader"
+3. Xong! Mở chương trình bằng shortcut "Download Tool"
    trên Desktop hoặc trong Start Menu.
 
 Sau khi cài xong, có thể xoá thư mục giải nén này.
 
-Gỡ cài đặt: Start Menu > YouTube Channel Downloader > Gỡ cài đặt
+Gỡ cài đặt: Start Menu > Download Tool > Gỡ cài đặt
             (hoặc Settings > Apps > Installed apps). Video đã tải không bị xoá.
 
 Yêu cầu: Windows 10/11, kết nối Internet.
